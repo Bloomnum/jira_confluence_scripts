@@ -1,0 +1,275 @@
+import java.text.SimpleDateFormat
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.issue.fields.CustomField
+
+def issue = event.getIssue()
+
+def components = issue.getComponents()
+def issueType = issue.getIssueType()
+def issueTypeName = issueType.getName().equals("Epic")
+def сomponent = components.any { it.getName().equals("InHouse Project")}
+
+if (issueTypeName && !сomponent){
+
+
+def arr_cf = [22500,21501,19204,25717,25718,21100,13502,13503]
+def system_field = ["summary","assignee","description"]
+
+//id поля + атрибут инсайд
+def dictionary_сf = [
+    22500: 'Тип проекта',
+    21501: 'Ссылка на организацию',
+    19204: 'Ссылка на паспорт проекта',
+    25717: 'Ссылка на план проекта',
+    25718: 'Услуги проекта',
+    21100: 'Используемые продукты и решения',
+    13502: 'Дата начала',
+    13503: 'Дата окончания'
+
+]
+
+def dictionary_system_f = [
+    "summary": 'Имя',
+    "assignee": 'Менеджер проекта',
+    "description": 'Примечание',
+]
+
+
+
+def changeItems = event?.getChangeLog()?.getRelated("ChildChangeItem")
+
+if (changeItems){
+
+def customFieldManager = ComponentAccessor.getCustomFieldManager()
+// Получаем актив из cf : "Технический проект (insight)"
+def customFieldId_tech_pj = 25900
+def customField_tech_pj = customFieldManager.getCustomFieldObject(customFieldId_tech_pj)
+def customFieldValue_tech_pj = issue.getCustomFieldValue(customField_tech_pj).id[0]//CLIBD
+def customFieldValue_tech_pj_valid = "CLIBD-"+customFieldValue_tech_pj
+
+def asset_value = Assets.getByKey(customFieldValue_tech_pj_valid)
+
+log.warn("Значение в поле Технический проект (insight) : " + customFieldValue_tech_pj_valid)
+
+
+changeItems.each { changeItem ->
+
+
+    // Получаем "Название поля" изменяемого поля
+    def field = changeItem.field
+    log.warn("изменено поле : " + field)
+
+        //Если изменено системное поле
+        if(field in system_field){
+
+            def attribute_name_sys = dictionary_system_f[field]
+
+            if(field == "summary" ){
+            def summaryValue = issue.getSummary()
+            log.warn("Изменено поле : " +  field + " Новое значение : " + summaryValue)
+            asset_value.update {
+            setAttribute(attribute_name_sys, summaryValue)
+            }
+            }
+
+            if(field == "assignee" ){
+            def assigneeValue = issue.getAssigneeId()
+
+                if (assigneeValue == null){
+                log.warn("Asset value: пустое или " + assigneeValue )
+                asset_value.update {
+                clearAttribute(attribute_name_sys)
+                }
+                }
+
+                else{
+                    asset_value.update {
+                    setAttribute(attribute_name_sys, assigneeValue)
+                    }
+                    log.warn("Изменено поле : " +  field + " Новое значение : " + assigneeValue)
+                }
+            }
+
+            if(field == "description" ){
+            def descriptionValue = issue.getDescription()
+
+                if (descriptionValue == null){
+                log.warn("Asset value: пустое или " + descriptionValue )
+                asset_value.update {
+                clearAttribute(attribute_name_sys)
+                }
+                }
+
+                else{
+                    asset_value.update {
+                    setAttribute(attribute_name_sys, descriptionValue)
+                    }
+                    log.warn("Изменено поле : " +  field + " Новое значение : " + descriptionValue)
+                }
+            }
+
+        }
+
+
+        //Если изменено кастомное поле
+        else {
+
+            def customFields = customFieldManager.getCustomFieldObjects()
+            // Ищем поле по названию
+            def customField_name = customFields.find { it.name == field }
+            // Получаем ID поля
+            def customFieldId = customField_name.id
+            int numericId = customFieldId.replace("customfield_", "").toInteger()
+
+            // Проверяем, входит ли ID в массив arr_cf
+            if (numericId in arr_cf) {
+                log.warn("id поля входит в список для маппинга : " + numericId)
+
+                def attribute_name_cf = dictionary_сf[numericId]
+
+                // Получаем значение поля
+                String customFieldKey = "customfield_" + numericId.toString()
+                def customField = customFieldManager.getCustomFieldObject(customFieldKey)
+                def customFieldValue = issue.getCustomFieldValue(customField)
+
+
+
+                /// Обработка значения из поля : "Тип проекта-Этап" 22500
+                    if (numericId == 22500){
+
+                        log.warn("что я получил в cf " + customFieldValue)
+                        //Если поле очищено - очищаем значение атрибута
+                            if(customFieldValue == null){
+
+                            log.warn("Asset value: пустое или " + customFieldValue )
+
+                            asset_value.update {
+                                clearAttribute(attribute_name_cf)
+                            }
+                            }
+                            // Если в поле добавлено значение - добавляем значение в атрибут
+                            else {
+
+                                log.warn("Asset value: " + customFieldValue )
+
+                                def customFieldValue_valid = issue.getCustomFieldValue(customField).values()[0]
+
+                                asset_value.update {
+                                    setAttribute(attribute_name_cf, customFieldValue_valid)
+                                }
+                            }
+                    }
+
+                    /// Обработка значения из поля : "Организация (insight)" 21501
+                    if (numericId == 21501){
+
+                        log.warn("что я получил в cf " + customFieldValue)
+                        //Если поле очищено - очищаем значение атрибута
+                            if(customFieldValue == null){
+
+                            log.warn("Asset value: пустое или " + customFieldValue )
+
+                            asset_value.update {
+                                clearAttribute(attribute_name_cf)
+                            }
+                            }
+                            // Если в поле добавлено значение - добавляем значение в атрибут
+                            else {
+
+                                log.warn("Asset value: " + customFieldValue )
+
+
+                                def customFieldValue_valid = "CLIBD-" + "${customFieldValue.id[0]}"
+                                asset_value.update {
+                                    setAttribute(attribute_name_cf, customFieldValue_valid)
+                                }
+                            }
+                    }
+                    /// Обработка простых cf c типом TEXT, URL и т.п
+                    if (numericId == 19204 || numericId == 25717 || numericId == 25718){
+
+                        log.warn("что я получил в cf " + customFieldValue)
+                        //Если поле очищено - очищаем значение атрибута
+                        if(customFieldValue == null){
+
+                        log.warn("Asset value: пустое или " + customFieldValue )
+
+                        asset_value.update {
+                            clearAttribute(attribute_name_cf)
+                        }
+                        }
+                        // Если в поле добавлено значение - добавляем значение в атрибут
+                        else {
+
+                            log.warn("Asset value: " + customFieldValue )
+
+                            asset_value.update {
+                                setAttribute(attribute_name_cf, customFieldValue)
+                            }
+                        }
+                    }
+
+                    /// Обработка значения из поля : "Продукт (актив)" 21100
+                    if (numericId == 21100){
+
+                        log.warn("что я получил в cf " + customFieldValue)
+                        //Если поле очищено - очищаем значение атрибута
+                            if(customFieldValue == null){
+
+                            log.warn("Asset value: пустое или " + customFieldValue )
+
+                            asset_value.update {
+                                clearAttribute(attribute_name_cf)
+                            }
+                            }
+                            // Если в поле добавлено значение - добавляем значение в атрибут
+                            else {
+
+                                log.warn("Asset value: " + customFieldValue )
+
+
+                                def customFieldValue_valid = "PRODB-" + "${customFieldValue.id[0]}"
+                                asset_value.update {
+                                    setAttribute(attribute_name_cf, customFieldValue_valid)
+                                }
+                            }
+                    }
+
+                    if (numericId == 13502 || numericId == 13503){
+
+                        log.warn("что я получил в cf " + customFieldValue)
+                        //Если поле очищено - очищаем значение атрибута
+                        if(customFieldValue == null){
+
+                        log.warn("Asset value: пустое или " + customFieldValue )
+
+                        asset_value.update {
+                            clearAttribute(attribute_name_cf)
+                        }
+                        }
+                        // Если в поле добавлено значение - добавляем значение в атрибут
+                        else {
+
+                            log.warn("Asset value: " + customFieldValue )
+
+                            Date date_TG_E = (Date) customFieldValue
+                            SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yy")
+                            String date_TG_S_valid = sdf.format(date_TG_E)
+
+                            asset_value.update {
+                                setAttribute(attribute_name_cf, date_TG_S_valid)
+                            }
+                        }
+                    }
+
+
+
+
+            }
+            else{
+                log.warn("id поля НЕ входит в список для маппинга!!! : " + numericId)
+            }
+        }
+}
+}
+}
