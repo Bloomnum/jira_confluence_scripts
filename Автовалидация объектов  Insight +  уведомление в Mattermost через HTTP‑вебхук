@@ -1,0 +1,130 @@
+import java.lang.String
+import com.onresolve.jira.groovy.user.FieldBehaviours
+import com.onresolve.scriptrunner.runner.customisers.PluginModule
+import com.onresolve.scriptrunner.runner.customisers.WithPlugin
+import com.riadalabs.jira.plugins.insight.channel.external.api.facade.ObjectFacade
+import com.riadalabs.jira.plugins.insight.channel.external.api.facade.ObjectTypeAttributeFacade
+import com.riadalabs.jira.plugins.insight.services.model.ObjectBean
+import groovy.transform.BaseScript
+import com.atlassian.jira.component.ComponentAccessor
+import groovy.json.JsonOutput
+
+@WithPlugin('com.riadalabs.jira.plugins.insight')
+@BaseScript FieldBehaviours fieldBehaviours
+@PluginModule ObjectFacade objectFacade
+@PluginModule ObjectTypeAttributeFacade objectTypeAttributeFacade
+
+def logObjectKey = event.getObjectBean().getObjectKey()
+def logObjectTypeId = event.getObjectBean().objectTypeId
+log.warn("Измененен объект. Его id схемы объекта: " + logObjectTypeId)
+
+def keyObj = Assets.getByKey(logObjectKey)
+def userManager = ComponentAccessor.getJiraAuthenticationContext().getLoggedInUser()
+
+// Определение функции sendNotification и переменной MATTERMOST_WEBHOOK_URL вне условных блоков
+def sendNotification(String url, Map message) {
+    def connection = new URL(url).openConnection() as HttpURLConnection
+    connection.setRequestMethod("POST")
+    connection.doOutput = true
+    connection.setRequestProperty("Content-Type", "application/json")
+    log.warn("Sending request to: $url")
+
+    connection.outputStream.withWriter('UTF-8') { writer ->
+        writer.write(JsonOutput.toJson(message))
+    }
+
+    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.inputStream))
+    String line
+    StringBuilder response = new StringBuilder()
+    while ((line = reader.readLine())!= null) {
+        response.append(line)
+    }
+    reader.close()
+
+    log.warn("Response content: $response")
+}
+
+String MATTERMOST_WEBHOOK_URL = "https://your_jira.com/hooks/your_id_webhook"
+
+
+if(logObjectTypeId == 420 ) {
+
+def attr_value_NFP = keyObj.getAttributeValues('Not-for-public').value[0]
+log.warn("Значения в атрибуте Not-for-public : " + attr_value_NFP)
+
+
+    if (attr_value_NFP != true){
+        log.warn("Измененен объект в RDY Его id схемы объекта: " + logObjectTypeId)
+        log.warn("Ключ измененного объекта : " + keyObj)
+
+        // def attr_value_NFP = keyObj.getAttributeValues('Not-for-public').value[0]
+        // log.warn("Значение в атрибуте Not-for-public :" + attr_value_NFP)
+
+        def attr_value_line_of_pr = keyObj.getAttributeValues('Линейка продукта')
+        log.warn("Значение в атрибуте Линейка продукта :" + attr_value_line_of_pr)
+
+        def attr_value_name = keyObj.getAttributeValues('Наименование')
+        log.warn("Значение в атрибуте Наименование :" + attr_value_name)
+
+        def attr_value_version_PO = keyObj.getAttributeValues('Версия ПО')
+        log.warn("Значение в атрибуте Версия ПО :" + attr_value_version_PO)
+
+        def attr_value_compatible_with = keyObj.getAttributeValues('Совместимо с')
+        log.warn("Значение в атрибуте Совместимо с :" + attr_value_compatible_with)
+
+        def attr_value_vendor = keyObj.getAttributeValues('Вендор')
+        log.warn("Значение в атрибуте Вендор :" + attr_value_vendor)
+
+        def attr_value_ClassPO = keyObj.getAttributeValues('Класс ПО')
+        log.warn("Значение в атрибуте Класс ПО :" + attr_value_ClassPO)
+
+        // Проверка вложений (attachments)
+        def protFiles = []
+        def certFiles = []
+
+        keyObj.getAttachments().filename.each { name ->
+            String lowerCaseName = name.toLowerCase()
+
+            if (lowerCaseName =~ /(?i)Prot.*\.pdf/) {
+                protFiles.add(name)
+            } else if (lowerCaseName =~ /(?i)cert.*\.pdf/) {
+                certFiles.add(name)
+            }
+        }
+        boolean attach =!(protFiles.isEmpty() || certFiles.isEmpty())
+
+        def user = userManager.getName()
+        log.warn(user)
+
+            if(user!= "astrabot" && attr_value_NFP == false && attr_value_line_of_pr?.isEmpty() || attr_value_name?.isEmpty() || attr_value_version_PO?.isEmpty() || attr_value_compatible_with?.isEmpty() || attr_value_vendor?.isEmpty() || attr_value_ClassPO?.isEmpty() || attach == false){
+                log.warn("вложения являются : " + attach)
+                log.warn("Не полностью заполнен объект Отправляю уведомление в ММ!")
+
+                // Переключить attr_value_NFP на boolean = True
+                keyObj.update {
+                    setAttribute('Not-for-public', true)
+                }
+                String validUser = "@" + user.replaceAll(/.*(?=_)/, '').replaceFirst("_", "")
+                log.warn("это валидный юзер ? :" + validUser)
+
+                // Формирование сообщения для отправки
+                Map notificationMessage = [
+                    text: "Не полностью заполнен объект. Отправляю уведомление в ММ!",
+                    channel: validUser
+                ]
+
+                // Отправка уведомления
+                sendNotification(MATTERMOST_WEBHOOK_URL, notificationMessage)
+            }
+
+            else {
+                log.warn("Объект корректно заполнен. Проверка пройдена")
+            }
+
+    }
+}
+
+// else{
+//     log.warn("Сделаны измененения в схеме объекта . Его id схемы: " + logObjectTypeId)
+//     return false
+// }
